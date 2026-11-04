@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bulk Find &amp; Replace</title>
+<style>
+:root{
+  --bg:#ffffff;--fg:#1b1b1b;--muted:#666;--border:#c6c6c6;--field:#ffffff;--btn:#efefef;
+  --accent:#1d4ed8;--accent-fg:#ffffff;--space:rgba(234,88,12,.30);
+  --tf:rgba(37,99,235,.12);--tr:rgba(22,163,74,.14);
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#161616;--fg:#e6e6e6;--muted:#9a9a9a;--border:#3f3f3f;--field:#1f1f1f;--btn:#282828;
+    --accent:#3b82f6;--accent-fg:#ffffff;--space:rgba(251,146,60,.40);--tf:rgba(59,130,246,.20);--tr:rgba(34,197,94,.18);color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#161616;--fg:#e6e6e6;--muted:#9a9a9a;--border:#3f3f3f;--field:#1f1f1f;--btn:#282828;
+  --accent:#3b82f6;--accent-fg:#ffffff;--space:rgba(251,146,60,.40);--tf:rgba(59,130,246,.20);--tr:rgba(34,197,94,.18);color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:960px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 10px}
+#text{display:block;width:100%;height:45vh;min-height:160px;resize:vertical;padding:8px;
+  background:var(--field);color:var(--fg);border:1px solid var(--border);border-radius:4px;
+  font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin-bottom:12px}
+/* Each Find/Replace field: a multi-line textarea over an identical highlight layer */
+.fld{position:relative;flex:0 1 auto;width:8em;min-width:8em;max-width:100%;background:var(--field);border-radius:4px}
+.fld textarea,.hl{margin:0;padding:6px 8px;border:1px solid transparent;font:inherit;line-height:20px;
+  white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4;letter-spacing:normal}
+.fld textarea{position:relative;display:block;width:100%;height:34px;resize:none;overflow:hidden;
+  border-color:var(--border);border-radius:4px;background:transparent;color:var(--fg)}
+.hl{position:absolute;inset:0;overflow:hidden;color:transparent;pointer-events:none}
+.sp{background:var(--space);border-radius:2px}
+/* Find sits above Replace */
+.stack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;flex:0 1 auto;min-width:0;max-width:100%}
+/* Phones: both fields span the full width; the row controls get their own line */
+@media (max-width:600px){
+  .stack{flex:1 1 0;align-items:stretch}
+  .stack .fld{width:100% !important}
+  .ctl{flex-basis:100%;justify-content:flex-end}
+}
+.meter{position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre;line-height:20px;tab-size:4}
+.num{line-height:34px;min-width:1.8em;text-align:right;font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.ctl{display:flex;align-items:center;gap:6px;margin-left:auto;min-height:34px}
+.row label{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted);white-space:nowrap;cursor:pointer}
+.n{font-size:12px;color:var(--muted);min-width:6em;text-align:right;font-variant-numeric:tabular-nums}
+button{font:inherit;padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:var(--btn);color:var(--fg);cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.x{padding:4px 10px;line-height:1.2}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+#run,#done{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+#status,#bulkCount{font-size:13px;color:var(--muted)}
+#reset{color:#dc2626;border-color:#dc2626}
+#active{font-size:13px;color:var(--muted);margin:12px 0 6px}
+/* Bulk filling: the editor takes the place of the rows and the main buttons */
+main.bulk #active,main.bulk #rules,main.bulk #mainbar{display:none}
+main:not(.bulk) #bulk{display:none}
+.hint{font-size:13px;color:var(--muted);margin:12px 0 6px}
+.hint b{font-weight:600;color:var(--fg);padding:0 4px;border-radius:3px}
+.bulkfld{width:100%;min-width:0}
+/* The line layer sets the height (one spare line at the bottom); the textarea sits on top and never scrolls */
+.bulkfld .hl{position:relative;inset:auto;min-height:200px;padding-bottom:26px}
+.bulkfld textarea{position:absolute;top:0;left:0;width:100%;height:100%}
+.ln{min-height:20px}
+.lf{background:var(--tf)}
+.lr{background:var(--tr)}
+.lr:empty::after{content:"empty = delete";color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bulk Find &amp; Replace</h1>
+  <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Paste your text here"></textarea>
+  <div id="active">Active rows: 0</div>
+  <div id="rules"></div>
+  <div id="bulk">
+    <p class="hint">Line 1 <b class="lf">Find</b> · line 2 <b class="lr">Replace</b> · line 3 blank · repeat</p>
+    <div class="fld bulkfld"><div class="hl" aria-hidden="true"></div><textarea id="bulkText" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Find this&#10;Replace with this&#10;&#10;Find that&#10;Replace with that"></textarea></div>
+    <p id="bulkNote" class="hint" hidden></p>
+    <div class="bar">
+      <button id="done" type="button" title="Ctrl/Cmd + Enter">Done</button>
+      <button id="cancel" type="button">Cancel</button>
+      <span id="bulkCount"></span>
+    </div>
+  </div>
+  <div class="bar" id="mainbar">
+    <button id="run" type="button" title="Ctrl/Cmd + Enter">Find &amp; Replace All</button>
+    <button id="undo" type="button" disabled>Undo</button>
+    <button id="copy" type="button">Copy text</button>
+    <button id="clear" type="button">Clear text</button>
+    <button id="reset" type="button">Reset all</button>
+    <button id="add" type="button">Add row</button>
+    <button id="bulkBtn" type="button">Bulk filling</button>
+    <span id="status" role="status"></span>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const text = document.getElementById('text');
+  const rules = document.getElementById('rules');
+  const status = document.getElementById('status');
+  const undoBtn = document.getElementById('undo');
+  const activeEl = document.getElementById('active');
+  const main = document.querySelector('main');
+  const KEY = 'bulk-find-replace:rules';
+  let undoState = null;   // { text, rows? }
+
+  // ---- Space highlighting in Find/Replace fields ----
+  const escHtml = s => s.replace(/[&<>]/g, ch => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;'));
+  const isField = el => el instanceof HTMLTextAreaElement && el !== text;
+
+  // Off-screen element used to measure the widest line of a field
+  const meter = document.createElement('span');
+  meter.className = 'meter';
+  meter.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(meter);
+
+  // Redraw highlights, then size the field: width follows the widest line (capped at the row),
+  // height follows the number of lines, so the whole text is always visible
+  function paint(t) {
+    t.previousElementSibling.innerHTML = escHtml(t.value).replace(/[^\S\n]+/g, '<span class="sp">$&</span>');
+    meter.textContent = t.value;
+    t.parentElement.style.width = (meter.offsetWidth + 22) + 'px';
+    t.style.height = 'auto';
+    t.style.height = (t.scrollHeight + 2) + 'px';
+    t.scrollTop = 0;
+  }
+
+  const field = (cls, ph) =>
+    `<div class="fld"><div class="hl" aria-hidden="true"></div>` +
+    `<textarea class="${cls}" rows="1" placeholder="${ph}" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
+
+  // New rows start with the previous row's Match case; it is re-copied the moment the row is first touched
+  function addRow(f = '', r = '', c) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML =
+      '<span class="num"></span>' +
+      '<div class="stack">' + field('f', 'Find') + field('r', 'Replace with') + '</div>' +
+      '<span class="ctl"><label><input type="checkbox" class="c"> Match case</label>' +
+      '<span class="n"></span>' +
+      '<button type="button" class="x" title="Remove row" aria-label="Remove row">×</button></span>';
+    if (c === undefined) {
+      const prev = rules.lastElementChild;
+      c = prev ? prev.querySelector('.c').checked : false;
+      row.dataset.fresh = '1';
+    }
+    const fi = row.querySelector('.f'), ri = row.querySelector('.r');
+    fi.value = f;
+    ri.value = r;
+    row.querySelector('.c').checked = c;
+    rules.appendChild(row);
+    paint(fi);
+    paint(ri);
+    return row;
+  }
+
+  // Add a fresh pair when the last row has both Find and Replace filled
+  function ensureTrailing() {
+    const last = rules.lastElementChild;
+    if (!last || (last.querySelector('.f').value !== '' && last.querySelector('.r').value !== '')) addRow();
+  }
+
+  function readRules() {
+    const out = [];
+    for (const row of rules.children) {
+      const f = row.querySelector('.f').value;
+      if (f === '') continue;
+      out.push({ f, r: row.querySelector('.r').value, c: row.querySelector('.c').checked });
+    }
+    return out;
+  }
+
+  // Number the active rows (those with a Find term) 1, 2, 3...; empty rows stay unnumbered
+  function updateActive() {
+    let n = 0;
+    for (const row of rules.children) {
+      const active = row.querySelector('.f').value !== '';
+      if (active) n++;
+      row.querySelector('.num').textContent = active ? n + '.' : '';
+    }
+    activeEl.textContent = `Active rows: ${n}`;
+  }
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(readRules().map(({ f, r, c }) => [f, r, c]))); } catch (e) {}
+  }
+
+  function load() {
+    try {
+      const data = JSON.parse(localStorage.getItem(KEY) || '[]');
+      if (Array.isArray(data)) {
+        for (const d of data) {
+          if (Array.isArray(d) && typeof d[0] === 'string' && d[0] !== '') addRow(d[0], String(d[1] ?? ''), !!d[2]);
+        }
+      }
+    } catch (e) {}
+    ensureTrailing();
+    updateAllCounts();
+    updateActive();
+  }
+
+  const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // ---- Live occurrence counts ----
+  function countIn(s, f, c) {
+    let n = 0;
+    if (c) {
+      for (let i = s.indexOf(f); i !== -1; i = s.indexOf(f, i + f.length)) n++;
+    } else {
+      const re = new RegExp(escapeRe(f), 'gi');
+      while (re.exec(s) !== null) n++;
+    }
+    return n;
+  }
+
+  function updateCount(row, s) {
+    const f = row.querySelector('.f').value;
+    const el = row.querySelector('.n');
+    el.textContent = f === '' ? '' : countIn(s, f, row.querySelector('.c').checked).toLocaleString() + ' found';
+  }
+
+  function updateAllCounts(s = text.value) {
+    for (const row of rules.children) updateCount(row, s);
+  }
+
+  // Short debounce so typing stays smooth even with very large text
+  let timer = 0, pendingAll = false;
+  const pendingRows = new Set();
+  function scheduleCount(row) {
+    if (row) pendingRows.add(row); else pendingAll = true;
+    clearTimeout(timer);
+    timer = setTimeout(flushCounts, 60);
+  }
+  function cancelCounts() {
+    clearTimeout(timer);
+    pendingAll = false;
+    pendingRows.clear();
+  }
+  function flushCounts() {
+    const s = text.value;
+    if (pendingAll) updateAllCounts(s);
+    else for (const row of pendingRows) if (row.isConnected) updateCount(row, s);
+    pendingAll = false;
+    pendingRows.clear();
+  }
+
+  function run() {
+    const list = readRules();
+    if (!list.length) { status.textContent = 'Enter at least one Find term.'; return; }
+
+    const t0 = performance.now();
+    const before = text.value;          // read the textarea once
+    let s = before, total = 0;
+
+    // Rules run top to bottom; split/join is literal (no $ or regex surprises) and gives a count
+    for (const rule of list) {
+      const parts = rule.c ? s.split(rule.f) : s.split(new RegExp(escapeRe(rule.f), 'i'));
+      const n = parts.length - 1;
+      if (n) { s = parts.join(rule.r); total += n; }
+    }
+
+    if (total) {                        // write the textarea once
+      undoState = { text: before };
+      undoBtn.disabled = false;
+      text.value = s;
+    }
+    const ms = (performance.now() - t0).toFixed(1);
+    status.textContent = total
+      ? `Replaced ${total.toLocaleString()} match${total === 1 ? '' : 'es'} in ${ms} ms.`
+      : 'No matches found.';
+    if (total) {
+      cancelCounts();
+      updateAllCounts(s);
+    }
+  }
+
+  // ---- Events ----
+  rules.addEventListener('input', e => {
+    const t = e.target;
+    const row = t.closest('.row');
+    if (!row) return;
+    if (isField(t)) {
+      paint(t);
+    } else if (t.classList.contains('c')) {
+      delete row.dataset.fresh;           // a box ticked by hand is never overwritten
+    }
+    if (row === rules.lastElementChild) ensureTrailing();
+    if (!t.classList.contains('r')) scheduleCount(row);   // Replace text doesn't affect the count
+    if (t.classList.contains('f')) updateActive();
+    save();
+  });
+  rules.addEventListener('change', save);
+
+  // Touching a new row's field copies the previous row's Match case
+  rules.addEventListener('focusin', e => {
+    if (!isField(e.target)) return;
+    const row = e.target.closest('.row');
+    if (!row.dataset.fresh) return;
+    delete row.dataset.fresh;
+    const prev = row.previousElementSibling;
+    if (prev) row.querySelector('.c').checked = prev.querySelector('.c').checked;
+  });
+
+  // Row width changes (rotating the phone, resizing the window) change wrapping, so re-measure
+  let resizeRaf = 0;
+  window.addEventListener('resize', () => {
+    if (main.classList.contains('bulk')) return;   // rows are hidden; they're re-measured when bulk filling closes
+    cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(() => { for (const t of rules.querySelectorAll('.fld textarea')) paint(t); });
+  });
+
+  rules.addEventListener('click', e => {
+    const x = e.target.closest('.x');
+    if (!x) return;
+    x.closest('.row').remove();
+    ensureTrailing();
+    updateActive();
+    save();
+  });
+
+  text.addEventListener('input', () => scheduleCount());
+
+  document.getElementById('run').addEventListener('click', run);
+  document.getElementById('add').addEventListener('click', () => addRow().querySelector('.f').focus());
+
+  function snapshotRows() {
+    const out = [];
+    for (const row of rules.children) {
+      const f = row.querySelector('.f').value, r = row.querySelector('.r').value;
+      if (f !== '' || r !== '') out.push([f, r, row.querySelector('.c').checked]);
+    }
+    return out;
+  }
+
+  undoBtn.addEventListener('click', () => {
+    if (!undoState) return;
+    text.value = undoState.text;
+    if (undoState.rows) {
+      rules.textContent = '';
+      for (const [f, r, c] of undoState.rows) addRow(f, r, c);
+      ensureTrailing();
+      updateActive();
+      save();
+    }
+    undoState = null;
+    undoBtn.disabled = true;
+    cancelCounts();
+    updateAllCounts();
+    status.textContent = 'Undone.';
+  });
+
+  document.getElementById('copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(text.value);
+      status.textContent = 'Copied.';
+    } catch (e) {
+      text.focus();
+      text.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) {}
+      status.textContent = ok ? 'Copied.' : 'Text selected. Press Ctrl+C (Cmd+C) to copy.';
+    }
+  });
+
+  document.getElementById('clear').addEventListener('click', () => {
+    if (text.value === '') return;
+    undoState = { text: text.value };
+    undoBtn.disabled = false;
+    text.value = '';
+    cancelCounts();
+    updateAllCounts('');
+    status.textContent = 'Text cleared. Undo brings it back.';
+  });
+
+  document.getElementById('reset').addEventListener('click', () => {
+    const rows = snapshotRows();
+    if (text.value !== '' || rows.length) {
+      undoState = { text: text.value, rows };
+      undoBtn.disabled = false;
+    }
+    text.value = '';
+    rules.textContent = '';
+    addRow();
+    cancelCounts();
+    updateAllCounts('');
+    updateActive();
+    save();
+    status.textContent = undoState && undoState.rows ? 'Everything reset. Undo brings it back.' : 'Reset.';
+  });
+
+  // ---- Bulk filling ----
+  const bulkText = document.getElementById('bulkText');
+  const bulkHl = bulkText.previousElementSibling;
+  const bulkCount = document.getElementById('bulkCount');
+  const bulkNote = document.getElementById('bulkNote');
+  const cancelBtn = document.getElementById('cancel');
+  let bulkInitial = '', bulkKept = [], cancelArmed = 0;
+
+  // Role of each line: 'f' Find, 'r' Replace, 's' blank. Line 1 Find, line 2 Replace, line 3 blank, repeat.
+  // Forgiving: extra blank lines between pairs are skipped, and a missing blank line just starts the next pair.
+  function bulkRoles(lines) {
+    const roles = new Array(lines.length);
+    let i = 0;
+    while (i < lines.length) {
+      if (lines[i] === '') { roles[i++] = 's'; continue; }
+      roles[i++] = 'f';
+      if (i < lines.length) roles[i++] = 'r';
+      if (i < lines.length && lines[i].trim() === '') roles[i++] = 's';
+    }
+    return roles;
+  }
+
+  const bulkLines = () => bulkText.value.replace(/\r\n?/g, '\n').split('\n');
+
+  function parseBulk() {
+    const lines = bulkLines(), roles = bulkRoles(lines), out = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (roles[i] === 'f') out.push([lines[i], roles[i + 1] === 'r' ? lines[i + 1] : '']);
+    }
+    return out;
+  }
+
+  // Tint each line by how it will be read (Find blue, Replace green) and mark spaces
+  function paintBulk() {
+    const lines = bulkLines(), roles = bulkRoles(lines), html = [];
+    let pairs = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const role = roles[i];
+      if (role === 'f') pairs++;
+      html.push(`<div class="ln${role === 'f' ? ' lf' : role === 'r' ? ' lr' : ''}">` +
+        escHtml(lines[i]).replace(/[^\S\n]+/g, '<span class="sp">$&</span>') + '</div>');
+    }
+    bulkHl.innerHTML = html.join('');
+    bulkCount.textContent = `${pairs} pair${pairs === 1 ? '' : 's'}`;
+  }
+
+  // The editor starts with the current rows written out, so Done leaves the rows exactly matching the list
+  function openBulk() {
+    const shown = [];
+    bulkKept = [];
+    for (const row of snapshotRows()) {
+      if (row[0] === '') continue;
+      (row[0].includes('\n') || row[1].includes('\n') ? bulkKept : shown).push(row);
+    }
+    bulkInitial = shown.length ? shown.map(([f, r]) => f + '\n' + r).join('\n\n') + '\n\n' : '';
+    bulkText.value = bulkInitial;
+    const k = bulkKept.length;
+    bulkNote.hidden = !k;
+    bulkNote.textContent = k
+      ? `${k} row${k === 1 ? ' has' : 's have'} line breaks, so ${k === 1 ? "it isn't" : "they aren't"} listed here. ` +
+        `${k === 1 ? 'It stays' : 'They stay'} as ${k === 1 ? 'is' : 'they are'}, after this list.`
+      : '';
+    disarmCancel();
+    main.classList.add('bulk');
+    paintBulk();
+    bulkText.focus();
+    bulkText.setSelectionRange(bulkInitial.length, bulkInitial.length);
+  }
+
+  function closeBulk(apply) {
+    disarmCancel();
+    let next = null, old = null;
+    if (apply) {
+      old = snapshotRows();
+      // Rows already in the list keep their Match case; new ones copy the row above (the first copies row 1)
+      const caseOf = new Map();
+      for (const [f, , c] of old) if (!caseOf.has(f)) caseOf.set(f, c);
+      const first = rules.firstElementChild;
+      let prev = first ? first.querySelector('.c').checked : false;
+      next = parseBulk().map(([f, r]) => {
+        const c = caseOf.has(f) ? caseOf.get(f) : prev;
+        prev = c;
+        return [f, r, c];
+      });
+      next.push(...bulkKept);
+      if (JSON.stringify(next) === JSON.stringify(old)) next = null;
+    }
+    main.classList.remove('bulk');        // rows must be visible before they are measured
+    if (next) {
+      undoState = { text: text.value, rows: old };
+      undoBtn.disabled = false;
+      rules.textContent = '';
+      for (const [f, r, c] of next) addRow(f, r, c);
+      ensureTrailing();
+      updateActive();
+      cancelCounts();
+      updateAllCounts();
+      save();
+      const n = next.length;
+      status.textContent = n
+        ? `Filled ${n} row${n === 1 ? '' : 's'}. Undo brings back the previous rows.`
+        : 'Rows cleared. Undo brings them back.';
+    } else {
+      for (const t of rules.querySelectorAll('.fld textarea')) paint(t);
+      status.textContent = apply ? 'No changes to the rows.' : '';
+    }
+    bulkText.value = '';
+    bulkHl.textContent = '';
+  }
+
+  // Cancel asks for a second tap when the list was edited, so typed work isn't lost by accident
+  function disarmCancel() {
+    clearTimeout(cancelArmed);
+    cancelArmed = 0;
+    cancelBtn.textContent = 'Cancel';
+  }
+  cancelBtn.addEventListener('click', () => {
+    if (bulkText.value !== bulkInitial && !cancelArmed) {
+      cancelBtn.textContent = 'Tap again to discard';
+      cancelArmed = setTimeout(disarmCancel, 3000);
+      return;
+    }
+    closeBulk(false);
+  });
+
+  bulkText.addEventListener('input', paintBulk);
+  document.getElementById('bulkBtn').addEventListener('click', openBulk);
+  document.getElementById('done').addEventListener('click', () => closeBulk(true));
+
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (main.classList.contains('bulk')) closeBulk(true); else run();
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
